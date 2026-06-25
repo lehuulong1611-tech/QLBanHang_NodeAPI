@@ -13,8 +13,8 @@ router.get('/', async (req, res) => {
         if (page < 1) page = 1;
         if (pageSize < 1) pageSize = 50;
 
-        const pool = await getDbConnection();
-
+        
+        let pool = await sql.connect();
         // A. Tính tổng số lượng nhân viên để làm phân trang
         const countResult = await pool.request().query('SELECT COUNT(*) AS Total FROM Dm_Nhanvien');
         const totalCount = countResult.recordset[0]?.Total || 0;
@@ -60,7 +60,8 @@ router.get('/get-nhom-hang/:maNhanVien', async (req, res) => {
     const { maNhanVien } = req.params;
 
     try {
-        const pool = await getDbConnection();
+       
+        let pool = await sql.connect();
 
         // Quét bảng phân quyền để lấy ra danh sách mã nhóm hàng (Manhom) của nhân viên này
         const result = await pool.request()
