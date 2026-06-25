@@ -19,24 +19,41 @@ router.get('/', async (req, res) => {
         const pool = await getDbConnection();
         
         // Tạo một request duy nhất để tái sử dụng, tránh lỗi Concurrent Request trên Render
-        const request = pool.request();
+       
 
         // A. Tính tổng số lượng nhân viên để làm phân trang
-        const countResult = await request.query('SELECT COUNT(*) AS Total FROM Dm_Nhanvien');
+       const countResult = await pool.request()
+    .query('SELECT COUNT(*) AS Total FROM Dm_Nhanvien');
         const totalCount = countResult.recordset[0]?.Total || 0;
 
         // B. Thực hiện truy vấn phân trang bằng SQL thuần (Dùng chung bộ request ở trên)
         const offset = (page - 1) * pageSize;
-        const listResult = await request
-            .input('Offset', sql.Int, offset)
-            .input('PageSize', sql.Int, pageSize)
-            .query(`
-                SELECT Ma, Ten, DienThoai, Chucvu 
-                FROM DM_NhanVien
-                ORDER BY Ma ASC
-                OFFSET @Offset ROWS
-                FETCH NEXT @PageSize ROWS ONLY
-            `);
+        const startRow = (page - 1) * pageSize + 1;
+const endRow = page * pageSize;
+
+const listResult = await pool.request()
+    .input('StartRow', sql.Int, startRow)
+    .input('EndRow', sql.Int, endRow)
+    .query(`
+        WITH NV AS
+        (
+            SELECT
+                Ma,
+                Ten,
+                DienThoai,
+                Chucvu,
+                ROW_NUMBER() OVER (ORDER BY Ma ASC) AS RowNum
+            FROM DM_NhanVien
+        )
+        SELECT
+            Ma,
+            Ten,
+            DienThoai,
+            Chucvu
+        FROM NV
+        WHERE RowNum BETWEEN @StartRow AND @EndRow
+        ORDER BY RowNum
+    `);
 
         // C. Map lại dữ liệu theo đúng định dạng "ketQuaPhang" của C# cũ
         const ketQuaPhang = listResult.recordset.map(nv => ({
