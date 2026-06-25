@@ -1,13 +1,19 @@
 const express = require('express');
 const router = express.Router();
-const sql = require('mssql');
 
+// 🟢 ĐƯỜNG DẪN CHÍNH XÁC: Lấy đúng hàm kết nối dùng chung từ file db.js ở ngoài
+const { getDbConnection, sql } = require('../db');
+
+// =========================================================================
 // 🌟 1. GET: api/ToaDoKhachHang/:maKH
+// =========================================================================
 router.get('/:maKH', async (req, res) => {
     const { maKH } = req.params;
     if (!maKH) return res.status(400).send("Thiếu thông tin mã khách hàng.");
     try {
-        let pool = await sql.connect(); // Tự dùng connection pool có sẵn
+        // Thay đổi: Lấy pool an toàn từ db.js
+        const pool = await getDbConnection(); 
+        
         let result = await pool.request()
             .input('MaKhachHang', sql.VarChar, maKH)
             .query('SELECT MaKhachHang, ViDo, KinhDo, NgayCapNhat, NguoiCapNhat FROM ToaDoKhachHang WHERE MaKhachHang = @MaKhachHang');
@@ -25,10 +31,14 @@ router.get('/:maKH', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// =========================================================================
 // 🌟 1.5 GET: api/ToaDoKhachHang
+// =========================================================================
 router.get('/', async (req, res) => {
     try {
-        let pool = await sql.connect();
+        // Thay đổi: Lấy pool an toàn từ db.js
+        const pool = await getDbConnection(); 
+        
         let result = await pool.request().query('SELECT MaKhachHang, ViDo, KinhDo, NgayCapNhat, NguoiCapNhat FROM ToaDoKhachHang');
         const listToaDo = result.recordset.map(row => ({
             maKhachHang: row.MaKhachHang,
@@ -41,19 +51,23 @@ router.get('/', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// =========================================================================
 // 🌟 2. POST: api/ToaDoKhachHang
-// 🌟 Sửa lại đoạn POST trong controllers/ToaDoKhachHangController.js
+// =========================================================================
 router.post('/', async (req, res) => {
     const dto = req.body;
     if (!dto || !dto.maKhachHang) return res.status(400).send("Dữ liệu tọa độ không hợp lệ.");
     
     try {
-        let pool = await sql.connect();
+        // Thay đổi: Lấy pool an toàn từ db.js
+        const pool = await getDbConnection(); 
         
-        // Đón đúng chữ viết thường từ Payload JavaScript gửi sang
         const { maKhachHang, viDo, kinhDo, nguoiCapNhat } = req.body;
 
-        let checkResult = await pool.request()
+        // Tạo một đối tượng request duy nhất cho chuỗi xử lý CHECK -> INSERT/UPDATE
+        const request = pool.request();
+
+        let checkResult = await request
             .input('MaKhachHang', sql.VarChar, maKhachHang)
             .query('SELECT COUNT(1) as count FROM ToaDoKhachHang WHERE MaKhachHang = @MaKhachHang');
         
@@ -62,8 +76,8 @@ router.post('/', async (req, res) => {
             ? `UPDATE ToaDoKhachHang SET ViDo=@ViDo, KinhDo=@KinhDo, NgayCapNhat=GETDATE(), NguoiCapNhat=@NguoiCapNhat WHERE MaKhachHang=@MaKhachHang`
             : `INSERT INTO ToaDoKhachHang (MaKhachHang, ViDo, KinhDo, NgayCapNhat, NguoiCapNhat) VALUES (@MaKhachHang, @ViDo, @KinhDo, GETDATE(), @NguoiCapNhat)`;
 
-        await pool.request()
-            .input('MaKhachHang', sql.VarChar, maKhachHang)
+        // Tái sử dụng request và bổ sung thêm input đầu vào để thực thi câu lệnh tiếp theo
+        await request
             .input('ViDo', sql.Decimal(18, 10), viDo)
             .input('KinhDo', sql.Decimal(18, 10), kinhDo)
             .input('NguoiCapNhat', sql.VarChar, nguoiCapNhat || null)
@@ -72,4 +86,5 @@ router.post('/', async (req, res) => {
         res.json({ success: true, message: "Cập nhật tọa độ khách hàng thành công!" });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
-module.exports = router; // Xuất router này ra ngoài
+
+module.exports = router;
