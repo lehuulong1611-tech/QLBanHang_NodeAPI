@@ -20,10 +20,10 @@ sql.connect(dbConfig)
     .catch(err => console.error("❌ Lỗi kết nối DB:", err.message));
 
 // 🚀 Đăng ký các Controller (Sửa lại đúng tên thư mục 'control' của bạn)
-app.use('/api/ToaDoKhachHang', require('./control/ToaDoKhachHangController'));
-app.use('/api/NhanVien', require('./control/NhanVienController')); 
-app.use('/api/KhachHang', require('./control/KhachHangController'));
-app.use('/api/DonHang', require('./control/DonHangController'));
+app.use('/api/ToaDoKhachHang', require('./controller/ToaDoKhachHangController'));
+app.use('/api/NhanVien', require('./controller/NhanVienController')); 
+app.use('/api/KhachHang', require('./controller/KhachHangController'));
+app.use('/api/DonHang', require('./controller/DonHangController'));
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
