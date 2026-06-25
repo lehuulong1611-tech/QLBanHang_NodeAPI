@@ -67,15 +67,19 @@ router.get('/', async (req, res) => {
         // ==========================================
         // 4. FORMAT DATA
         // ==========================================
-        const ketQuaPhang = danhSachPhanTrang.map(tk => ({
-            ma: tk.Ma,
-            ten: tk.Ten,
-            dvt: tk.Dvt,
-            slg1Lo: tk.Slg1Lo ?? 1.0,
-            giasi: tk.Giasi ?? 0,
-            soLuongConLai: tk.SoLuongConLai ?? 0,
-            nhomHang: tk.NhomHang ?? ""
-        }));
+       const ketQuaPhang = danhSachPhanTrang.map(tk => {
+    console.log("SQL RAW:", tk.Slg1Lo, typeof tk.Slg1Lo);
+
+    return {
+        ma: tk.Ma,
+        ten: tk.Ten,
+        dvt: tk.Dvt,
+        slg1Lo: tk.Slg1Lo ?? 1.0,
+        giasi: tk.Giasi ?? 0,
+        soLuongConLai: tk.SoLuongConLai ?? 0,
+        nhomHang: tk.NhomHang ?? ""
+    };
+});
 
         // ==========================================
         // 5. RETURN
