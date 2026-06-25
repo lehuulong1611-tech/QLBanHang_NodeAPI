@@ -1,21 +1,19 @@
 const express = require('express');
-const cors = require('cors'); // 1. Đảm bảo đã có dòng này
+const cors = require('cors'); 
 const sql = require('mssql');
 
 const app = express();
 
-// 2. Cấu hình CORS mở toang cửa cho Firebase gọi vào
+// 1. Cấu hình CORS mở toang cửa cho Firebase gọi vào
 app.use(cors({
-    origin: '*', // Cho phép tất cả các tên miền (bao gồm cả Firebase) gọi vào
-    methods: ['GET', 'POST', 'PUT', 'DELETE','OPTIONS'],
+    origin: '*', 
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json());
 
-// ... Các đoạn code dbConfig và app.use('/api/KhachHang'...) giữ nguyên phía dưới
-
-// ⚙️ Cấu hình kết nối SQL Server về máy công ty bạn (Cổng 48261)
+// 2. ⚙️ Cấu hình kết nối SQL Server về máy công ty bạn (Cổng 48261)
 const dbConfig = {
     user: 'sa',
     password: 'vts',
@@ -34,7 +32,7 @@ const dbConfig = {
     }
 };
 
-// Hàm kết nối SQL Server dùng chung
+// Hàm kết nối SQL Server dùng chung (để các controller có thể require và dùng)
 async function getDbConnection() {
     try {
         return await sql.connect(dbConfig);
@@ -43,14 +41,19 @@ async function getDbConnection() {
         throw err;
     }
 }
+
+// Xuất hàm này ra để các file Controller khác có thể sử dụng lại
+module.exports = { getDbConnection, sql };
+
 // Kết nối Database ngay khi bật Server
 sql.connect(dbConfig)
     .then(() => console.log("🔥 Đã thông mạch kết nối về SQL Server công ty!"))
     .catch(err => console.error("❌ Lỗi kết nối DB:", err.message));
 
-// 🚀 Đăng ký các Controller (Giống như MapControllers trong C#)
-app.use('/api/ToaDoKhachHang', require('./controllers/ToaDoKhachHangController'));
-app.use('/api/KhachHang', require('./controllers/KhachHangController'));
+// 3. 🚀 Đăng ký các Controller (Đảm bảo tên thư mục Controllers viết hoa/thường phải đúng với GitHub)
+app.use('/api/ToaDoKhachHang', require('./Controllers/ToaDoKhachHangController'));
+app.use('/api/KhachHang', require('./Controllers/KhachHangController'));
+app.use('/api/DonHang', require('./Controllers/DonHangController'));
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
