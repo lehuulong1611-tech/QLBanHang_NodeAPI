@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getDbConnection, sql } = require('../db');
+const { getDbConnection } = require('../db');
 
 // ==========================================
 // GET: api/SanPham?page=1&pageSize=50&nhomHangs=0001,0002
@@ -18,53 +18,55 @@ router.get('/', async (req, res) => {
 
         let tatCaSanPham = [];
 
-        // ==============================
-        // 1. LẤY DỮ LIỆU TỪ VIEW TONKHO
-        // ==============================
+        // ==========================================
+        // 1. XỬ LÝ NHÓM HÀNG AN TOÀN
+        // ==========================================
+        let danhSachNhom = [];
+
         if (nhomHangs && nhomHangs.trim() !== "") {
-
-            const danhSachNhom = nhomHangs
+            danhSachNhom = nhomHangs
                 .split(',')
-                .map(x => x.trim())
+                .map(x => x.replace(/\[|\]/g, '').trim()) // bỏ [] nếu có
                 .filter(x => x !== "");
-
-            const chuoiInSql = danhSachNhom.map(x => `'${x.replace(/'/g, "''")}'`).join(',');
-
-            const query = `
-                SELECT *
-                FROM Tonkho
-                WHERE SoLuongConLai > 0
-                  AND NhomHang IN (${chuoiInSql})
-            `;
-
-            const result = await pool.request().query(query);
-            tatCaSanPham = result.recordset;
-
-        } else {
-
-            const result = await pool.request().query(`
-                SELECT *
-                FROM Tonkho
-                WHERE SoLuongConLai > 0
-            `);
-
-            tatCaSanPham = result.recordset;
         }
 
-        // ==============================
-        // 2. TỔNG RECORD
-        // ==============================
+        // ==========================================
+        // 2. QUERY SQL
+        // ==========================================
+        let query = `
+            SELECT *
+            FROM Tonkho
+            WHERE SoLuongConLai > 0
+        `;
+
+        if (danhSachNhom.length > 0) {
+            const chuoiInSql = danhSachNhom
+                .map(x => `'${x.replace(/'/g, "''")}'`)
+                .join(',');
+
+            query += `
+                AND REPLACE(REPLACE(LTRIM(RTRIM(NhomHang)), '[',''), ']','')
+                IN (${chuoiInSql})
+            `;
+        }
+
+        const result = await pool.request().query(query);
+        tatCaSanPham = result.recordset;
+
+        // ==========================================
+        // 3. PHÂN TRANG
+        // ==========================================
         const totalCount = tatCaSanPham.length;
 
-        // ==============================
-        // 3. PHÂN TRANG (RAM - giống C# của bạn)
-        // ==============================
         const startIndex = (page - 1) * pageSize;
-        const danhSachPhanTrang = tatCaSanPham.slice(startIndex, startIndex + pageSize);
+        const danhSachPhanTrang = tatCaSanPham.slice(
+            startIndex,
+            startIndex + pageSize
+        );
 
-        // ==============================
-        // 4. FORMAT DATA (GIỐNG C#)
-        // ==============================
+        // ==========================================
+        // 4. FORMAT DATA
+        // ==========================================
         const ketQuaPhang = danhSachPhanTrang.map(tk => ({
             ma: tk.Ma,
             ten: tk.Ten,
@@ -75,9 +77,9 @@ router.get('/', async (req, res) => {
             nhomHang: tk.NhomHang ?? ""
         }));
 
-        // ==============================
-        // 5. RETURN GIỐNG CHUẨN PROJECT
-        // ==============================
+        // ==========================================
+        // 5. RETURN
+        // ==========================================
         return res.json({
             TotalRecords: totalCount,
             CurrentPage: page,
@@ -86,6 +88,7 @@ router.get('/', async (req, res) => {
         });
 
     } catch (err) {
+        console.error("Lỗi SanPham API:", err);
         return res.status(500).send(
             `Lỗi hệ thống lấy dữ liệu sản phẩm: ${err.message}`
         );
