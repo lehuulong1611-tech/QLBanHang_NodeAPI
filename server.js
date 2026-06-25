@@ -22,8 +22,8 @@ sql.connect(dbConfig)
 // 🚀 Đăng ký các Controller (Sửa lại đúng tên thư mục 'control' của bạn)
 app.use('/api/ToaDoKhachHang', require('./control/ToaDoKhachHangController'));
 app.use('/api/NhanVien', require('./control/NhanVienController')); 
-// app.use('/api/KhachHang', require('./control/KhachHangController'));
-// app.use('/api/DonHang', require('./control/DonHangController'));
+app.use('/api/KhachHang', require('./control/KhachHangController'));
+app.use('/api/DonHang', require('./control/DonHangController'));
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
