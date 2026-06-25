@@ -7,7 +7,7 @@ const app = express();
 // 2. Cấu hình CORS mở toang cửa cho Firebase gọi vào
 app.use(cors({
     origin: '*', // Cho phép tất cả các tên miền (bao gồm cả Firebase) gọi vào
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE','OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
