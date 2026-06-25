@@ -94,6 +94,38 @@ app.get('/api/ToaDoKhachHang', async (req, res) => {
 });
 
 // =========================================================================
+// 🌟 3. GET: api/KhachHang (Lấy toàn bộ danh sách Khách Hàng thỏa mãn điều kiện)
+// =========================================================================
+app.get('/api/KhachHang', async (req, res) => {
+    try {
+        let pool = await getDbConnection();
+        
+        // 1. Thực hiện truy vấn với điều kiện LaKhachHang = 1 (tương đương true trong SQL Server)
+        let result = await pool.request()
+            .query('SELECT Ma, Ten, DienThoai, DiaChi FROM DmKhachHangs WHERE LaKhachHang = 1');
+
+        // 2. Chuyển thành dữ liệu phẳng với đúng định dạng chữ lạc đà (camelCase) như C# xuất ra
+        const ketQuaPhang = result.recordset.map(kh => ({
+            maKhachHang: kh.Ma || "",
+            tenKhachHang: kh.Ten || "Không rõ tên",
+            dienThoai: kh.DienThoai || "",
+            diaChi: kh.DiaChi || ""
+        }));
+
+        // 3. Trả về mảng trần luôn, không đóng gói phân trang đúng theo logic cũ của bạn
+        res.json(ketQuaPhang);
+    } catch (err) {
+        // Trả về lỗi định dạng chuỗi y hệt hệ thống cũ để Client dễ bắt lỗi
+        res.status(500).json({ error: `Lỗi hệ thống: ${err.message}` });
+    }
+});
+
+
+
+
+
+
+// =========================================================================
 // 🌟 2. POST: api/ToaDoKhachHang (Lưu hoặc Cập nhật tọa độ - UPSERT)
 // =========================================================================
 app.post('/api/ToaDoKhachHang', async (req, res) => {
