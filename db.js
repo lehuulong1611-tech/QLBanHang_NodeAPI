@@ -23,8 +23,12 @@ async function getDbConnection() {
     try {
         return await sql.connect(dbConfig);
     } catch (err) {
-        console.error('Dữ liệu đã đóng! Khoảng thời gian làm việc từ 6h15 đến 21h45:');
-        throw err;
+        console.error('❌ Lỗi DB:', err.message);
+
+        // ❗ Không throw err gốc nữa
+        const safeError = new Error('DỮ LIỆU TẠM THỜI ĐÓNG! THỜI GIAN LÀM VIỆC TỪ 6h15 đến 22h00');
+        safeError.status = 503;
+        throw safeError;
     }
 }
 
