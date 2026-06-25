@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
-// Require hàm kết nối từ server.js
-const sql = require('mssql');
+
+// 🟢 ĐƯỜNG DẪN CHÍNH XÁC: Gọi hàm kết nối dùng chung từ file db.js ở ngoài
+const { getDbConnection, sql } = require('../db');
 
 // =========================================================================
 // 🌟 1. API LẤY CHI TIẾT SẢN PHẨM TỪ BẢNG web_ChiTietDonHang
@@ -11,8 +12,10 @@ router.get('/GetChiTiet/:maDonHang', async (req, res) => {
     if (!maDonHang) return res.status(400).send("Thiếu thông tin mã đơn hàng.");
 
     try {
-        await getDbConnection();
-        const result = await sql.query`SELECT * FROM web_ChiTietDonHang WHERE MaDonHang = ${maDonHang}`;
+        const pool = await getDbConnection();
+        const result = await pool.request()
+            .input('MaDonHang', sql.VarChar, maDonHang)
+            .query('SELECT * FROM web_ChiTietDonHang WHERE MaDonHang = @MaDonHang');
         
         const danhSachChiTiet = result.recordset.map(row => ({
             maDonHang: row.MaDonHang,
@@ -31,7 +34,7 @@ router.get('/GetChiTiet/:maDonHang', async (req, res) => {
             thanhTienCuoiCung: row.ThanhTienCuoiCung || 0
         }));
 
-        return res.ok ? res.ok(danhSachChiTiet) : res.json(danhSachChiTiet);
+        return res.json(danhSachChiTiet);
     } catch (err) {
         return res.status(500).send(`Lỗi hệ thống khi lấy chi tiết đơn hàng: ${err.message}`);
     }
@@ -48,8 +51,7 @@ router.put('/CapNhatDonChoDuyet/:maDonHang', async (req, res) => {
         return res.status(400).send("Dữ liệu đơn hàng không hợp lệ.");
     }
 
-    
-    let pool = await sql.connect();
+    const pool = await getDbConnection();
     const transaction = new sql.Transaction(pool);
 
     try {
@@ -122,7 +124,7 @@ router.put('/CapNhatDonChoDuyet/:maDonHang', async (req, res) => {
         }
 
         await transaction.commit();
-        return res.json({ success = true, message = "Cập nhật đơn hàng thành công!" });
+        return res.json({ success: true, message: "Cập nhật đơn hàng thành công!" });
     } catch (err) {
         await transaction.rollback();
         return res.status(500).send(`Lỗi hệ thống khi cập nhật đơn hàng: ${err.message}`);
@@ -137,8 +139,7 @@ router.get('/TrongNgay', async (req, res) => {
     if (!maNV) return res.status(400).send("Thiếu thông tin mã nhân viên.");
 
     try {
-       
-        let pool = await sql.connect();
+        const pool = await getDbConnection();
         const homNay = new Date();
         homNay.setHours(0,0,0,0);
 
@@ -205,7 +206,7 @@ router.get('/ThongKeDashboard', async (req, res) => {
     if (!maNV) return res.status(400).send("Thiếu thông tin mã nhân viên.");
 
     try {
-        let pool = await sql.connect();
+        const pool = await getDbConnection();
         const homNay = new Date();
         homNay.setHours(0,0,0,0);
 
@@ -243,7 +244,7 @@ router.post('/', async (req, res) => {
         return res.status(400).send("Dữ liệu đơn hàng hoặc danh sách sản phẩm không hợp lệ.");
     }
 
-    let pool = await sql.connect();
+    const pool = await getDbConnection();
     const transaction = new sql.Transaction(pool);
 
     try {
@@ -329,7 +330,7 @@ router.delete('/:maDonHang', async (req, res) => {
     const { maDonHang } = req.params;
     if (!maDonHang) return res.status(400).send("Thiếu thông tin mã đơn hàng cần xóa.");
 
-    let pool = await sql.connect();
+    const pool = await getDbConnection();
     const transaction = new sql.Transaction(pool);
 
     try {
