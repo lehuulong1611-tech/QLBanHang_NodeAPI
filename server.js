@@ -1,12 +1,19 @@
 const express = require('express');
-const cors = require('cors');
+const cors = require('cors'); // 1. Đảm bảo đã có dòng này
 const sql = require('mssql');
 
 const app = express();
 
-// Bật CORS để tất cả các ứng dụng khác (Web/Mobile) gọi vào được
-app.use(cors());
+// 2. Cấu hình CORS mở toang cửa cho Firebase gọi vào
+app.use(cors({
+    origin: '*', // Cho phép tất cả các tên miền (bao gồm cả Firebase) gọi vào
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
+
+// ... Các đoạn code dbConfig và app.use('/api/KhachHang'...) giữ nguyên phía dưới
 
 // ⚙️ Cấu hình kết nối SQL Server về máy công ty bạn (Cổng 48261)
 const dbConfig = {
