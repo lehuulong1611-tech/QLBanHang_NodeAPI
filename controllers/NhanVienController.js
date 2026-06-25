@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
-// Require hàm kết nối từ file server.js của bạn
-const { getDbConnection, sql } = require('../server');
+const sql = require('mssql'); // Sử dụng trực tiếp thư viện mssql giống file ToaDoKhachHang
 
 // =========================================================================
 // 🌟 1. GET: api/NhanVien?page=1&pageSize=50 (LẤY DANH SÁCH NHÂN VIÊN PHÂN TRANG)
