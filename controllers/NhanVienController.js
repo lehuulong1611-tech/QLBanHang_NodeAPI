@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 // ĐƯỜNG DẪN: Lấy đúng hàm getDbConnection và thư viện sql từ file server.js gốc của bạn
 // Nếu file này nằm sâu hơn trong thư mục (vd: controllers/), hãy đảm bảo đường dẫn '../server' là chính xác
-const { getDbConnection, sql } = require('../server'); 
+const { getDbConnection, sql } = require('../db'); 
 
 // =========================================================================
 // 🌟 1. GET: api/NhanVien?page=1&pageSize=50 (LẤY DANH SÁCH NHÂN VIÊN PHÂN TRANG)
