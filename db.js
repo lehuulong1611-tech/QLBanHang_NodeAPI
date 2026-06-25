@@ -23,7 +23,7 @@ async function getDbConnection() {
     try {
         return await sql.connect(dbConfig);
     } catch (err) {
-        console.error('Lỗi kết nối SQL Server:', err.message);
+        console.error('Dữ liệu đã đóng! Khoảng thời gian làm việc từ 6h15 đến 21h45:');
         throw err;
     }
 }
