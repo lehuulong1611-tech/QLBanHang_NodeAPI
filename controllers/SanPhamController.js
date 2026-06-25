@@ -78,7 +78,7 @@ router.get('/', async (req, res) => {
         ma: tk.Ma,
         ten: tk.Ten,
         dvt: tk.Dvt,
-        slg1Lo: tk.Slg1Lo ?? 1.0,
+        slg1Lo: tk.Slg1Lo,
         giasi: tk.Giasi ?? 0,
         soLuongConLai: tk.SoLuongConLai ?? 0,
         nhomHang: tk.NhomHang ?? ""
