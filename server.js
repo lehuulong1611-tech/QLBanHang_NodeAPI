@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors'); 
 const sql = require('mssql');
-
 const app = express();
 
 // 1. Cấu hình CORS mở toang cửa cho Firebase gọi vào
