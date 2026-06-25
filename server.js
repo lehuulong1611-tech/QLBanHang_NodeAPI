@@ -51,9 +51,9 @@ sql.connect(dbConfig)
     .catch(err => console.error("❌ Lỗi kết nối DB:", err.message));
 
 // 3. 🚀 Đăng ký các Controller (Đảm bảo tên thư mục Controllers viết hoa/thường phải đúng với GitHub)
-app.use('/api/ToaDoKhachHang', require('./Controllers/ToaDoKhachHangController'));
-app.use('/api/KhachHang', require('./Controllers/KhachHangController'));
-app.use('/api/DonHang', require('./Controllers/DonHangController'));
+app.use('/api/ToaDoKhachHang', require('./controllers/ToaDoKhachHangController'));
+app.use('/api/KhachHang', require('./controllers/KhachHangController'));
+app.use('/api/DonHang', require('./controllers/DonHangController'));
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
