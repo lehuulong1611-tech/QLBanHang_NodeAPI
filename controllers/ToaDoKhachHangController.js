@@ -42,13 +42,19 @@ router.get('/', async (req, res) => {
 });
 
 // 🌟 2. POST: api/ToaDoKhachHang
+// 🌟 Sửa lại đoạn POST trong controllers/ToaDoKhachHangController.js
 router.post('/', async (req, res) => {
     const dto = req.body;
-    if (!dto || !dto.MaKhachHang) return res.status(400).send("Dữ liệu tọa độ không hợp lệ.");
+    if (!dto || !dto.maKhachHang) return res.status(400).send("Dữ liệu tọa độ không hợp lệ.");
+    
     try {
         let pool = await sql.connect();
+        
+        // Đón đúng chữ viết thường từ Payload JavaScript gửi sang
+        const { maKhachHang, viDo, kinhDo, nguoiCapNhat } = req.body;
+
         let checkResult = await pool.request()
-            .input('MaKhachHang', sql.VarChar, dto.MaKhachHang)
+            .input('MaKhachHang', sql.VarChar, maKhachHang)
             .query('SELECT COUNT(1) as count FROM ToaDoKhachHang WHERE MaKhachHang = @MaKhachHang');
         
         const exists = checkResult.recordset[0].count > 0;
@@ -57,14 +63,13 @@ router.post('/', async (req, res) => {
             : `INSERT INTO ToaDoKhachHang (MaKhachHang, ViDo, KinhDo, NgayCapNhat, NguoiCapNhat) VALUES (@MaKhachHang, @ViDo, @KinhDo, GETDATE(), @NguoiCapNhat)`;
 
         await pool.request()
-            .input('MaKhachHang', sql.VarChar, dto.MaKhachHang)
-            .input('ViDo', sql.Decimal(18, 10), dto.ViDo)
-            .input('KinhDo', sql.Decimal(18, 10), dto.KinhDo)
-            .input('NguoiCapNhat', sql.VarChar, dto.NguoiCapNhat || null)
+            .input('MaKhachHang', sql.VarChar, maKhachHang)
+            .input('ViDo', sql.Decimal(18, 10), viDo)
+            .input('KinhDo', sql.Decimal(18, 10), kinhDo)
+            .input('NguoiCapNhat', sql.VarChar, nguoiCapNhat || null)
             .query(sqlExecute);
 
         res.json({ success: true, message: "Cập nhật tọa độ khách hàng thành công!" });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 module.exports = router; // Xuất router này ra ngoài
