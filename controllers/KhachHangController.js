@@ -1,11 +1,17 @@
 const express = require('express');
 const router = express.Router();
-const sql = require('mssql');
 
+// 🟢 ĐƯỜNG DẪN CHÍNH XÁC: Lấy đúng hàm kết nối dùng chung từ file db.js ở ngoài
+const { getDbConnection, sql } = require('../db');
+
+// =========================================================================
 // 🌟 3. GET: api/KhachHang
+// =========================================================================
 router.get('/', async (req, res) => {
     try {
-        let pool = await sql.connect();
+        // Thay đổi: Lấy pool kết nối an toàn từ db.js để tránh xung đột trên Render
+        const pool = await getDbConnection();
+        
         let result = await pool.request()
             .query('SELECT Ma, Ten, DienThoai, DiaChi FROM DM_KhachHang WHERE LaKhachHang = 1');
 
