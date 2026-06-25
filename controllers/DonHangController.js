@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 // Require hàm kết nối từ server.js
-const { getDbConnection, sql } = require('../server');
+const sql = require('mssql');
 
 // =========================================================================
 // 🌟 1. API LẤY CHI TIẾT SẢN PHẨM TỪ BẢNG web_ChiTietDonHang
@@ -48,7 +48,8 @@ router.put('/CapNhatDonChoDuyet/:maDonHang', async (req, res) => {
         return res.status(400).send("Dữ liệu đơn hàng không hợp lệ.");
     }
 
-    const pool = await getDbConnection();
+    
+    let pool = await sql.connect();
     const transaction = new sql.Transaction(pool);
 
     try {
@@ -136,7 +137,8 @@ router.get('/TrongNgay', async (req, res) => {
     if (!maNV) return res.status(400).send("Thiếu thông tin mã nhân viên.");
 
     try {
-        const pool = await getDbConnection();
+       
+        let pool = await sql.connect();
         const homNay = new Date();
         homNay.setHours(0,0,0,0);
 
@@ -203,7 +205,7 @@ router.get('/ThongKeDashboard', async (req, res) => {
     if (!maNV) return res.status(400).send("Thiếu thông tin mã nhân viên.");
 
     try {
-        const pool = await getDbConnection();
+        let pool = await sql.connect();
         const homNay = new Date();
         homNay.setHours(0,0,0,0);
 
@@ -241,7 +243,7 @@ router.post('/', async (req, res) => {
         return res.status(400).send("Dữ liệu đơn hàng hoặc danh sách sản phẩm không hợp lệ.");
     }
 
-    const pool = await getDbConnection();
+    let pool = await sql.connect();
     const transaction = new sql.Transaction(pool);
 
     try {
@@ -327,7 +329,7 @@ router.delete('/:maDonHang', async (req, res) => {
     const { maDonHang } = req.params;
     if (!maDonHang) return res.status(400).send("Thiếu thông tin mã đơn hàng cần xóa.");
 
-    const pool = await getDbConnection();
+    let pool = await sql.connect();
     const transaction = new sql.Transaction(pool);
 
     try {
