@@ -59,10 +59,7 @@ router.get('/', async (req, res) => {
         }
 
         const result = await pool.request().query(query);
-        console.log("SQL RESULT SAMPLE:", result.recordset.slice(0, 5).map(x => ({
-    Ma: x.Ma,
-    Slg1Lo: x.Slg1Lo
-})));
+       
         tatCaSanPham = result.recordset;
 
         // ==========================================
@@ -85,7 +82,7 @@ router.get('/', async (req, res) => {
         ma: tk.Ma,
         ten: tk.Ten,
         dvt: tk.Dvt,
-        slg1Lo: tk.slg1Lo ?? 1.0,
+        slg1Lo: tk.slg1Lo,
         giasi: tk.Giasi ?? 0,
         soLuongConLai: tk.SoLuongConLai ?? 0,
         nhomHang: tk.NhomHang ?? ""
