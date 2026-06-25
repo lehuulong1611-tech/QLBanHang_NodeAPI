@@ -45,8 +45,7 @@ router.get('/', async (req, res) => {
             const result = await pool.request().query(`
                 SELECT *
                 FROM Tonkho
-                WHERE NhomHang = ''
-                  AND SoLuongConLai > 0
+                WHERE SoLuongConLai > 0
             `);
 
             tatCaSanPham = result.recordset;
