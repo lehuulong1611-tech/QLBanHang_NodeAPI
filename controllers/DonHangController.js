@@ -1,653 +1,372 @@
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.SqlClient;
-using Microsoft.EntityFrameworkCore;
-using QLBanHangAPI.Models; // Giữ nguyên theo namespace của bạn
-using System;
-using System.Data;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore.Storage;
-using System.Collections.Generic;
-
-namespace QLBanHangAPI.Controllers
-{
-    [Route("api/[controller]")]
-    [ApiController]
-    public class DonHangController : ControllerBase
-    {
-        private readonly CHBANHDbContext _context;
-
-        public DonHangController(CHBANHDbContext context)
-        {
-            _context = context;
-        }
-
-        // =========================================================================
-        // 🌟 1. API LẤY CHI TIẾT SẢN PHẨM TỪ BẢNG web_ChiTietDonHang (Dùng SQL Thuần)
-        // =========================================================================
-        [HttpGet("GetChiTiet/{maDonHang}")]
-        public async Task<IActionResult> GetChiTietDonHang(string maDonHang)
-        {
-            if (string.IsNullOrEmpty(maDonHang))
-            {
-                return BadRequest("Thiếu thông tin mã đơn hàng.");
-            }
-
-            try
-            {
-                string sqlQuery = "SELECT * FROM web_ChiTietDonHang WHERE MaDonHang = @MaDonHang";
-                var connection = _context.Database.GetDbConnection();
-                if (connection.State != ConnectionState.Open)
-                    await connection.OpenAsync();
-
-                var danhSachChiTiet = new List<object>();
-
-                using (var command = connection.CreateCommand())
-                {
-                    command.CommandText = sqlQuery;
-                    var param = command.CreateParameter();
-                    param.ParameterName = "@MaDonHang";
-                    param.Value = maDonHang;
-                    command.Parameters.Add(param);
-
-                    using (var reader = await command.ExecuteReaderAsync())
-                    {
-                        while (await reader.ReadAsync())
-                        {
-                            danhSachChiTiet.Add(new
-                            {
-                                maDonHang = reader["MaDonHang"]?.ToString(),
-                                maHangNCC = reader["MaHangNCC"]?.ToString(),
-                                tenSanPham = reader["TenSanPham"]?.ToString(),
-                                quyCach = reader["QuyCach"] != DBNull.Value ? Convert.ToInt32(reader["QuyCach"]) : 1,
-                                donViLe = reader["DonViLe"]?.ToString() ?? "Gói",
-                                dvtSelected = reader["DvtSelected"]?.ToString() ?? "thung",
-                                loaiHang = reader["LoaiHang"]?.ToString() ?? "hang_ban",
-                                soLuong = reader["SoLuong"] != DBNull.Value ? Convert.ToInt32(reader["SoLuong"]) : 0,
-                                donGiaGoc = reader["DonGiaGoc"] != DBNull.Value ? Convert.ToDecimal(reader["DonGiaGoc"]) : 0,
-                                tienHangGoc = reader["TienHangGoc"] != DBNull.Value ? Convert.ToDecimal(reader["TienHangGoc"]) : 0,
-                                chietKhauPhanTram = reader["ChietKhauPhanTram"] != DBNull.Value ? Convert.ToDecimal(reader["ChietKhauPhanTram"]) : 0,
-                                tienChietKhau = reader["TienChietKhau"] != DBNull.Value ? Convert.ToDecimal(reader["TienChietKhau"]) : 0,
-                                giaSauChietKhau = reader["GiaSauChietKhau"] != DBNull.Value ? Convert.ToDecimal(reader["GiaSauChietKhau"]) : 0,
-                                thanhTienCuoiCung = reader["ThanhTienCuoiCung"] != DBNull.Value ? Convert.ToDecimal(reader["ThanhTienCuoiCung"]) : 0
-                            });
-                        }
-                    }
-                }
-                return Ok(danhSachChiTiet);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Lỗi hệ thống khi lấy chi tiết đơn hàng: {ex.Message}");
-            }
-        }
-
-        // =========================================================================
-        // 🌟 2. API CẬP NHẬT ĐƠN HÀNG CHỜ DUYỆT (100% SQL Thuần ADO.NET)
-        // =========================================================================
-        [HttpPut("CapNhatDonChoDuyet/{maDonHang}")]
-        public async Task<IActionResult> CapNhatDonChoDuyet(string maDonHang, [FromBody] DonHangCapNhatDto dto)
-        {
-            if (dto == null || maDonHang != dto.MaDonHang)
-            {
-                return BadRequest("Dữ liệu đơn hàng không hợp lệ.");
-            }
-
-            var connection = _context.Database.GetDbConnection();
-            if (connection.State != ConnectionState.Open)
-                await connection.OpenAsync();
-
-            // Đọc trạng thái đơn hàng hiện tại dưới DB bằng SQL thuần
-            string trangThaiHienTai = null;
-            using (var checkCmd = connection.CreateCommand())
-            {
-                checkCmd.CommandText = "SELECT TrangThai FROM web_DonHang WHERE MaDonHang = @MaDonHang";
-                var p = checkCmd.CreateParameter();
-                p.ParameterName = "@MaDonHang";
-                p.Value = maDonHang;
-                checkCmd.Parameters.Add(p);
-
-                var statusObj = await checkCmd.ExecuteScalarAsync();
-                trangThaiHienTai = statusObj?.ToString();
-            }
-
-            if (string.IsNullOrEmpty(trangThaiHienTai))
-            {
-                return NotFound("Không tìm thấy đơn hàng này trên hệ thống.");
-            }
-
-            if (trangThaiHienTai != "Chờ duyệt")
-            {
-                return BadRequest("Đơn hàng đã được duyệt hoặc bị hủy, không thể sửa đổi nữa!");
-            }
-
-            using (var transaction = await _context.Database.BeginTransactionAsync())
-            {
-                try
-                {
-                    // A. UPDATE bảng web_DonHang
-                    string updateDonHangSql = @"
-                        UPDATE web_DonHang 
-                        SET MaKhachHang = @MaKhachHang, 
-                            TenKhachHang = @TenKhachHang, 
-                            SoDienThoaiKH = @SoDienThoaiKH,
-                            DiaChiKH = @DiaChiKH,
-                            TongTienThanhToan = @TongTienThanhToan, 
-                            GhiChuDonHang = @GhiChuDonHang,
-                            NgayGiaoHang = @NgayGiaoHang
-                        WHERE MaDonHang = @MaDonHang";
-
-                    await _context.Database.ExecuteSqlRawAsync(updateDonHangSql,
-                        new SqlParameter("@MaKhachHang", dto.MaKhachHang ?? ""),
-                        new SqlParameter("@TenKhachHang", dto.TenKhachHang ?? ""),
-                        new SqlParameter("@SoDienThoaiKH", dto.SoDienThoaiKH ?? (object)DBNull.Value),
-                        new SqlParameter("@DiaChiKH", dto.DiaChiKH ?? (object)DBNull.Value),
-                        new SqlParameter("@TongTienThanhToan", dto.TongTienThanhToan),
-                        new SqlParameter("@GhiChuDonHang", dto.GhiChuDonHang ?? (object)DBNull.Value),
-                        new SqlParameter("@NgayGiaoHang", dto.NgayGiaoHang ?? (object)DBNull.Value),
-                        new SqlParameter("@MaDonHang", maDonHang)
-                    );
-
-                    // B. DELETE chi tiết đơn hàng cũ
-                    string deleteChiTietSql = "DELETE FROM web_ChiTietDonHang WHERE MaDonHang = @MaDonHang";
-                    await _context.Database.ExecuteSqlRawAsync(deleteChiTietSql, new SqlParameter("@MaDonHang", maDonHang));
-
-                    // C. INSERT lại danh sách chi tiết mới
-                    if (dto.DanhSachSanPham != null && dto.DanhSachSanPham.Any())
-                    {
-                        string insertChiTietSql = @"
-                            INSERT INTO web_ChiTietDonHang (MaDonHang, MaHangNCC, TenSanPham, QuyCach, DonViLe, DvtSelected, LoaiHang, SoLuong, DonGiaGoc, TienHangGoc, ChietKhauPhanTram, TienChietKhau, GiaSauChietKhau, ThanhTienCuoiCung)
-                            VALUES (@MaDonHang, @MaHangNCC, @TenSanPham, @QuyCach, @DonViLe, @DvtSelected, @LoaiHang, @SoLuong, @DonGiaGoc, @TienHangGoc, @ChietKhauPhanTram, @TienChietKhau, @GiaSauChietKhau, @ThanhTienCuoiCung)";
-
-                        foreach (var item in dto.DanhSachSanPham)
-                        {
-                            await _context.Database.ExecuteSqlRawAsync(insertChiTietSql,
-                                new SqlParameter("@MaDonHang", maDonHang),
-                                new SqlParameter("@MaHangNCC", item.MaHangNCC ?? ""),
-                                new SqlParameter("@TenSanPham", item.TenSanPham ?? ""),
-                                new SqlParameter("@QuyCach", item.QuyCach),
-                                new SqlParameter("@DonViLe", item.DonViLe ?? "Gói"),
-                                new SqlParameter("@DvtSelected", item.DvtSelected ?? "thung"),
-                                new SqlParameter("@LoaiHang", item.LoaiHang ?? "hang_ban"),
-                                new SqlParameter("@SoLuong", item.SoLuong),
-                                new SqlParameter("@DonGiaGoc", item.DonGiaGoc),
-                                new SqlParameter("@TienHangGoc", item.TienHangGoc),
-                                new SqlParameter("@ChietKhauPhanTram", item.ChietKhauPhanTram),
-                                new SqlParameter("@TienChietKhau", item.TienChietKhau),
-                                new SqlParameter("@GiaSauChietKhau", item.GiaSauChietKhau),
-                                new SqlParameter("@ThanhTienCuoiCung", item.ThanhTienCuoiCung)
-                            );
-                        }
-                    }
-
-                    await transaction.CommitAsync();
-                    return Ok(new { success = true, message = "Cập nhật đơn hàng thành công!" });
-                }
-                catch (Exception ex)
-                {
-                    await transaction.RollbackAsync();
-                    return StatusCode(500, $"Lỗi hệ thống khi cập nhật đơn hàng: {ex.Message}");
-                }
-            }
-        }
-
-        // =========================================================================
-        // 🌟 3. GET: api/DonHang/TrongNgay?maNV=NV001 (LẤY ĐƠN + CHI TIẾT SẢN PHẨM)
-        // =========================================================================
-        [HttpGet("TrongNgay")]
-        public async Task<IActionResult> GetDonHangTrongNgay([FromQuery] string maNV)
-        {
-            if (string.IsNullOrEmpty(maNV))
-            {
-                return BadRequest("Thiếu thông tin mã nhân viên.");
-            }
-
-            try
-            {
-                DateTime homNay = DateTime.Today;
-
-                // 1. Lấy danh sách các đơn hàng trong ngày của nhân viên trước
-                string sqlDonHang = @"
-                    SELECT 
-                        MaDonHang, NgayTaoDon, MaNhanVien, TenNhanVien,
-                        MaKhachHang, TenKhachHang, SoDienThoaiKH, DiaChiKH,
-                        GhiChuDonHang, NgayGiaoHang, TongTienThanhToan, TrangThai
-                    FROM web_DonHang
-                    WHERE NgayTaoDon >= @HomNay AND MaNhanVien = @MaNhanVien
-                    ORDER BY NgayTaoDon DESC";
-
-                var connection = _context.Database.GetDbConnection();
-                if (connection.State != ConnectionState.Open)
-                    await connection.OpenAsync();
-
-                var listDonHang = new List<dynamic>();
-
-                using (var cmdDH = connection.CreateCommand())
-                {
-                    cmdDH.CommandText = sqlDonHang;
-
-                    var p1 = cmdDH.CreateParameter();
-                    p1.ParameterName = "@HomNay";
-                    p1.Value = homNay;
-                    cmdDH.Parameters.Add(p1);
-
-                    var p2 = cmdDH.CreateParameter();
-                    p2.ParameterName = "@MaNhanVien";
-                    p2.Value = maNV;
-                    cmdDH.Parameters.Add(p2);
-
-                    using (var readerDH = await cmdDH.ExecuteReaderAsync())
-                    {
-                        while (await readerDH.ReadAsync())
-                        {
-                            listDonHang.Add(new
-                            {
-                                maDonHang = readerDH["MaDonHang"]?.ToString(),
-                                ngayTaoDon = Convert.ToDateTime(readerDH["NgayTaoDon"]).ToString("yyyy-MM-ddTHH:mm:ss"),
-                                maNhanVien = readerDH["MaNhanVien"]?.ToString(),
-                                tenNhanVien = readerDH["TenNhanVien"]?.ToString(),
-                                maKhachHang = readerDH["MaKhachHang"]?.ToString(),
-                                tenKhachHang = readerDH["TenKhachHang"]?.ToString(),
-                                soDienThoaiKH = readerDH["SoDienThoaiKH"]?.ToString(),
-                                diaChiKH = readerDH["DiaChiKH"]?.ToString(),
-                                ghiChuDonHang = readerDH["GhiChuDonHang"]?.ToString(),
-                                ngayGiaoHang = readerDH["NgayGiaoHang"] != DBNull.Value ? Convert.ToDateTime(readerDH["NgayGiaoHang"]).ToString("yyyy-MM-dd") : null,
-                                tongTienThanhToan = Convert.ToDecimal(readerDH["TongTienThanhToan"]),
-                                trangThai = readerDH["TrangThai"]?.ToString()
-                            });
-                        }
-                    }
-                }
-
-                // 2. Đi tuần tự qua từng đơn hàng vừa lấy được để bốc bảng chi tiết web_ChiTietDonHang gắn vào
-                string sqlChiTiet = @"
-                    SELECT 
-                        MaHangNCC, TenSanPham, QuyCach, DonViLe, DvtSelected, LoaiHang,
-                        SoLuong, DonGiaGoc, TienHangGoc, ChietKhauPhanTram, TienChietKhau,
-                        GiaSauChietKhau, ThanhTienCuoiCung
-                    FROM web_ChiTietDonHang
-                    WHERE MaDonHang = @MaDonHang";
-
-                var finalResult = new List<object>();
-
-                foreach (var dh in listDonHang)
-                {
-                    var listChiTiet = new List<object>();
-
-                    using (var cmdCT = connection.CreateCommand())
-                    {
-                        cmdCT.CommandText = sqlChiTiet;
-
-                        var pMaDon = cmdCT.CreateParameter();
-                        pMaDon.ParameterName = "@MaDonHang";
-                        pMaDon.Value = dh.maDonHang;
-                        cmdCT.Parameters.Add(pMaDon);
-
-                        using (var readerCT = await cmdCT.ExecuteReaderAsync())
-                        {
-                            while (await readerCT.ReadAsync())
-                            {
-                                listChiTiet.Add(new
-                                {
-                                    maHangNCC = readerCT["MaHangNCC"]?.ToString(),
-                                    tenSanPham = readerCT["TenSanPham"]?.ToString(),
-                                    quyCach = Convert.ToInt32(readerCT["QuyCach"]),
-                                    donViLe = readerCT["DonViLe"]?.ToString(),
-                                    dvtSelected = readerCT["DvtSelected"]?.ToString(),
-                                    loaiHang = readerCT["LoaiHang"]?.ToString(),
-                                    soLuong = Convert.ToInt32(readerCT["SoLuong"]),
-                                    donGiaGoc = Convert.ToDecimal(readerCT["DonGiaGoc"]),
-                                    tienHangGoc = Convert.ToDecimal(readerCT["TienHangGoc"]),
-                                    chietKhauPhanTram = Convert.ToDecimal(readerCT["ChietKhauPhanTram"]),
-                                    tienChietKhau = Convert.ToDecimal(readerCT["TienChietKhau"]),
-                                    giaSauChietKhau = Convert.ToDecimal(readerCT["GiaSauChietKhau"]),
-                                    thanhTienCuoiCung = Convert.ToDecimal(readerCT["ThanhTienCuoiCung"])
-                                });
-                            }
-                        }
-                    }
-
-                    // Gộp mảng chi tiết sản phẩm vào object đơn hàng
-                    finalResult.Add(new
-                    {
-                        dh.maDonHang,
-                        dh.ngayTaoDon,
-                        dh.maNhanVien,
-                        dh.tenNhanVien,
-                        dh.maKhachHang,
-                        dh.tenKhachHang,
-                        dh.soDienThoaiKH,
-                        dh.diaChiKH,
-                        dh.ghiChuDonHang,
-                        dh.ngayGiaoHang,
-                        dh.tongTienThanhToan,
-                        dh.trangThai,
-                        danhSachSanPham = listChiTiet
-                    });
-                }
-
-                return Ok(finalResult);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Lỗi hệ thống khi lấy đơn hàng trong ngày: {ex.Message}");
-            }
-        }
-
-        // =========================================================================
-        // 🌟 4. GET: api/DonHang/ThongKeDashboard?maNV=NV001
-        // =========================================================================
-        [HttpGet("ThongKeDashboard")]
-        public async Task<IActionResult> GetThongKeDashboard([FromQuery] string maNV)
-        {
-            if (string.IsNullOrEmpty(maNV))
-            {
-                return BadRequest("Thiếu thông tin mã nhân viên.");
-            }
-
-            try
-            {
-                DateTime homNay = DateTime.Today;
-                string sqlQuery = @"
-                    SELECT 
-                        ISNULL(SUM(CASE WHEN TrangThai = N'Đã duyệt' OR TrangThai = N'Chờ duyệt' THEN TongTienThanhToan ELSE 0 END), 0) AS DoanhSoGiaoDich,
-                        ISNULL(SUM(CASE WHEN TrangThai = N'Chờ duyệt' THEN 1 ELSE 0 END), 0) AS SoDonChoDuyet,
-                        ISNULL(SUM(CASE WHEN TrangThai = N'Đã duyệt' THEN 1 ELSE 0 END), 0) AS SoDonDaDuyet,
-                        COUNT(DISTINCT MaKhachHang) AS SoKhachMua,
-                        (
-                            SELECT COUNT(DISTINCT c.MaHangNCC) 
-                            FROM web_ChiTietDonHang c
-                            INNER JOIN web_DonHang d ON c.MaDonHang = d.MaDonHang
-                            WHERE d.NgayTaoDon >= @HomNay AND d.MaNhanVien = @MaNhanVien AND d.TrangThai <> N'Hủy đơn' AND d.TrangThai <> N'Hủy'
-                        ) AS SoSKU
-                    FROM web_DonHang
-                    WHERE NgayTaoDon >= @HomNay AND MaNhanVien = @MaNhanVien";
-
-                var connection = _context.Database.GetDbConnection();
-                if (connection.State != ConnectionState.Open)
-                    await connection.OpenAsync();
-
-                var result = new { doanhSoHomNay = 0m, choDuyet = 0, daDuyet = 0, khachMua = 0, sku = 0 };
-
-                using (var command = connection.CreateCommand())
-                {
-                    command.CommandText = sqlQuery;
-
-                    var paramHomNay = command.CreateParameter();
-                    paramHomNay.ParameterName = "@HomNay";
-                    paramHomNay.Value = homNay;
-                    command.Parameters.Add(paramHomNay);
-
-                    var paramMaNV = command.CreateParameter();
-                    paramMaNV.ParameterName = "@MaNhanVien";
-                    paramMaNV.Value = maNV;
-                    command.Parameters.Add(paramMaNV);
-
-                    using (var reader = await command.ExecuteReaderAsync())
-                    {
-                        if (await reader.ReadAsync())
-                        {
-                            result = new
-                            {
-                                doanhSoHomNay = Convert.ToDecimal(reader["DoanhSoGiaoDich"]),
-                                choDuyet = Convert.ToInt32(reader["SoDonChoDuyet"]),
-                                daDuyet = Convert.ToInt32(reader["SoDonDaDuyet"]),
-                                khachMua = Convert.ToInt32(reader["SoKhachMua"]),
-                                sku = Convert.ToInt32(reader["SoSKU"])
-                            };
-                        }
-                    }
-                }
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Lỗi hệ thống khi lấy số liệu Dashboard: {ex.Message}");
-            }
-        }
-
-        // =========================================================================
-        // 🌟 5. POST: api/DonHang (Hàm Thêm đơn hàng gốc - Sinh mã tăng dần tự động)
-        // =========================================================================
-        [HttpPost]
-        public async Task<IActionResult> TaoDonHang([FromBody] DonHangInsertModel model)
-        {
-            if (model == null || model.DanhSachSanPham == null || model.DanhSachSanPham.Count == 0)
-            {
-                return BadRequest("Dữ liệu đơn hàng hoặc danh sách sản phẩm không hợp lệ.");
-            }
-
-            using (var transaction = await _context.Database.BeginTransactionAsync())
-            {
-                try
-                {
-                    string prefix = $"WB{DateTime.Now:yyMM}";
-                    string maDonHangChinhThuc = "";
-
-                    var connection = _context.Database.GetDbConnection();
-                    if (connection.State != ConnectionState.Open)
-                        await connection.OpenAsync();
-
-                    using (var command = connection.CreateCommand())
-                    {
-                        command.Transaction = _context.Database.CurrentTransaction?.GetDbTransaction();
-                        command.CommandText = "SELECT MAX(MaDonHang) FROM web_DonHang WHERE MaDonHang LIKE @Prefix";
-
-                        var param = command.CreateParameter();
-                        param.ParameterName = "@Prefix";
-                        param.Value = prefix + "%";
-                        command.Parameters.Add(param);
-
-                        var maxMaDonHangObj = await command.ExecuteScalarAsync();
-                        string maxMaDonHang = maxMaDonHangObj != DBNull.Value ? maxMaDonHangObj?.ToString() : null;
-
-                        if (string.IsNullOrEmpty(maxMaDonHang))
-                        {
-                            maDonHangChinhThuc = prefix + "00001";
-                        }
-                        else
-                        {
-                            int lastNumber = int.Parse(maxMaDonHang.Substring(6));
-                            int nextNumber = lastNumber + 1;
-                            maDonHangChinhThuc = prefix + nextNumber.ToString("D5");
-                        }
-                    }
-
-                    string insertDonHangSql = @"
-                        INSERT INTO web_DonHang (MaDonHang, MaDonHangTam, NgayTaoDon, MaNhanVien, TenNhanVien, MaKhachHang, TenKhachHang, SoDienThoaiKH, DiaChiKH, GhiChuDonHang, NgayGiaoHang, TongTienThanhToan, TrangThai)
-                        VALUES (@MaDonHang, @MaDonHangTam, @NgayTaoDon, @MaNhanVien, @TenNhanVien, @MaKhachHang, @TenKhachHang, @SoDienThoaiKH, @DiaChiKH, @GhiChuDonHang, @NgayGiaoHang, @TongTienThanhToan, @TrangThai)";
-
-                    await _context.Database.ExecuteSqlRawAsync(insertDonHangSql,
-                        new SqlParameter("@MaDonHang", maDonHangChinhThuc),
-                        new SqlParameter("@MaDonHangTam", model.MaDonHangTam ?? (object)DBNull.Value),
-                        new SqlParameter("@NgayTaoDon", model.NgayTaoDon),
-                        new SqlParameter("@MaNhanVien", model.MaNhanVien ?? "CHƯA_RÕ"),
-                        new SqlParameter("@TenNhanVien", model.TenNhanVien ?? "Chưa rõ tên"),
-                        new SqlParameter("@MaKhachHang", model.MaKhachHang ?? ""),
-                        new SqlParameter("@TenKhachHang", model.TenKhachHang ?? ""),
-                        new SqlParameter("@SoDienThoaiKH", model.SoDienThoaiKH ?? (object)DBNull.Value),
-                        new SqlParameter("@DiaChiKH", model.DiaChiKH ?? (object)DBNull.Value),
-                        new SqlParameter("@GhiChuDonHang", model.GhiChuDonHang ?? (object)DBNull.Value),
-                        new SqlParameter("@NgayGiaoHang", model.NgayGiaoHang ?? (object)DBNull.Value),
-                        new SqlParameter("@TongTienThanhToan", model.TongTienThanhToan),
-                        new SqlParameter("@TrangThai", model.TrangThai ?? "Chờ duyệt")
-                    );
-
-                    string insertChiTietSql = @"
-                        INSERT INTO web_ChiTietDonHang (MaDonHang, MaHangNCC, TenSanPham, QuyCach, DonViLe, DvtSelected, LoaiHang, SoLuong, DonGiaGoc, TienHangGoc, ChietKhauPhanTram, TienChietKhau, GiaSauChietKhau, ThanhTienCuoiCung)
-                        VALUES (@MaDonHang, @MaHangNCC, @TenSanPham, @QuyCach, @DonViLe, @DvtSelected, @LoaiHang, @SoLuong, @DonGiaGoc, @TienHangGoc, @ChietKhauPhanTram, @TienChietKhau, @GiaSauChietKhau, @ThanhTienCuoiCung)";
-
-                    foreach (var item in model.DanhSachSanPham)
-                    {
-                        await _context.Database.ExecuteSqlRawAsync(insertChiTietSql,
-                            new SqlParameter("@MaDonHang", maDonHangChinhThuc),
-                            new SqlParameter("@MaHangNCC", item.MaHangNCC ?? ""),
-                            new SqlParameter("@TenSanPham", item.TenSanPham ?? ""),
-                            new SqlParameter("@QuyCach", item.QuyCach),
-                            new SqlParameter("@DonViLe", item.DonViLe ?? "Gói"),
-                            new SqlParameter("@DvtSelected", item.DvtSelected ?? "thung"),
-                            new SqlParameter("@LoaiHang", item.LoaiHang ?? "hang_ban"),
-                            new SqlParameter("@SoLuong", item.SoLuong),
-                            new SqlParameter("@DonGiaGoc", item.DonGiaGoc),
-                            new SqlParameter("@TienHangGoc", item.TienHangGoc),
-                            new SqlParameter("@ChietKhauPhanTram", item.ChietKhauPhanTram),
-                            new SqlParameter("@TienChietKhau", item.TienChietKhau),
-                            new SqlParameter("@GiaSauChietKhau", item.GiaSauChietKhau),
-                            new SqlParameter("@ThanhTienCuoiCung", item.ThanhTienCuoiCung)
-                        );
-                    }
-
-                    await transaction.CommitAsync();
-                    return Ok(new { success = true, maDonHangChinhThuc = maDonHangChinhThuc });
-                }
-                catch (Exception ex)
-                {
-                    await transaction.RollbackAsync();
-                    return StatusCode(500, $"Lỗi hệ thống khi lưu đơn hàng: {ex.Message}");
-                }
-            }
-        }
-
-        // =========================================================================
-        // 🌟 6. DELETE: api/DonHang/{maDonHang} (API XÓA ĐƠN CHỜ DUYỆT - SQL THUẦN)
-        // =========================================================================
-        [HttpDelete("{maDonHang}")]
-        public async Task<IActionResult> XoaDonHangChoDuyet(string maDonHang)
-        {
-            if (string.IsNullOrEmpty(maDonHang))
-            {
-                return BadRequest("Thiếu thông tin mã đơn hàng cần xóa.");
-            }
-
-            var connection = _context.Database.GetDbConnection();
-            if (connection.State != ConnectionState.Open)
-                await connection.OpenAsync();
-
-            // 1. Kiểm tra trạng thái đơn hàng trước khi cho phép xóa
-            string trangThaiHienTai = null;
-            using (var checkCmd = connection.CreateCommand())
-            {
-                checkCmd.CommandText = "SELECT TrangThai FROM web_DonHang WHERE MaDonHang = @MaDonHang";
-                var p = checkCmd.CreateParameter();
-                p.ParameterName = "@MaDonHang";
-                p.Value = maDonHang;
-                checkCmd.Parameters.Add(p);
-
-                var statusObj = await checkCmd.ExecuteScalarAsync();
-                trangThaiHienTai = statusObj?.ToString();
-            }
-
-            if (string.IsNullOrEmpty(trangThaiHienTai))
-            {
-                return NotFound($"Không tìm thấy đơn hàng {maDonHang} trên hệ thống.");
-            }
-
-            // Chỉ cho phép xóa đơn ở trạng thái Chờ Duyệt
-            if (trangThaiHienTai != "Chờ duyệt")
-            {
-                return BadRequest("Đơn hàng này đã được xử lý (Đã duyệt hoặc Hủy), không thể xóa khỏi hệ thống!");
-            }
-
-            // 2. Tiến hành xóa dữ liệu trong Transaction
-            using (var transaction = await _context.Database.BeginTransactionAsync())
-            {
-                try
-                {
-                    // Bước A: Xóa toàn bộ sản phẩm thuộc đơn hàng trong bảng chi tiết trước (Tránh lỗi khóa ngoại)
-                    string deleteChiTietSql = "DELETE FROM web_ChiTietDonHang WHERE MaDonHang = @MaDonHang";
-                    await _context.Database.ExecuteSqlRawAsync(deleteChiTietSql, new SqlParameter("@MaDonHang", maDonHang));
-
-                    // Bước B: Xóa đơn hàng trong bảng tổng web_DonHang
-                    string deleteDonHangSql = "DELETE FROM web_DonHang WHERE MaDonHang = @MaDonHang";
-                    int rowsAffected = await _context.Database.ExecuteSqlRawAsync(deleteDonHangSql, new SqlParameter("@MaDonHang", maDonHang));
-
-                    await transaction.CommitAsync();
-
-                    if (rowsAffected > 0)
-                    {
-                        return Ok(new { success = true, message = $"Đã xóa thành công đơn hàng {maDonHang}." });
-                    }
-                    else
-                    {
-                        return BadRequest("Xóa đơn hàng thất bại, vui lòng thử lại.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    await transaction.RollbackAsync();
-                    return StatusCode(500, $"Lỗi hệ thống khi xóa đơn hàng: {ex.Message}");
-                }
-            }
-        }
-
-        // =========================================================================
-        // 📦 CÁC CẤU TRÚC DTO (DATA TRANSFER OBJECT) VÀ MODELS NHẬN DỮ LIỆU
-        // =========================================================================
+const express = require('express');
+const router = express.Router();
+// Require hàm kết nối từ server.js
+const { getDbConnection, sql } = require('../server');
+
+// =========================================================================
+// 🌟 1. API LẤY CHI TIẾT SẢN PHẨM TỪ BẢNG web_ChiTietDonHang
+// =========================================================================
+router.get('/GetChiTiet/:maDonHang', async (req, res) => {
+    const { maDonHang } = req.params;
+    if (!maDonHang) return res.status(400).send("Thiếu thông tin mã đơn hàng.");
+
+    try {
+        await getDbConnection();
+        const result = await sql.query`SELECT * FROM web_ChiTietDonHang WHERE MaDonHang = ${maDonHang}`;
         
-        // 1. DTO cho chức năng Cập Nhật Đơn Hàng (PUT)
-        public class DonHangCapNhatDto
-        {
-            public string MaDonHang { get; set; }
-            public string MaKhachHang { get; set; }
-            public string TenKhachHang { get; set; }
-            public string SoDienThoaiKH { get; set; }
-            public string DiaChiKH { get; set; }
-            public decimal TongTienThanhToan { get; set; }
-            public string GhiChuDonHang { get; set; }
-            public DateTime? NgayGiaoHang { get; set; }
-            public List<ChiTietSanPhamCapNhatDto> DanhSachSanPham { get; set; }
-        }
+        const danhSachChiTiet = result.recordset.map(row => ({
+            maDonHang: row.MaDonHang,
+            maHangNCC: row.MaHangNCC,
+            tenSanPham: row.TenSanPham,
+            quyCach: row.QuyCach || 1,
+            donViLe: row.DonViLe || "Gói",
+            dvtSelected: row.DvtSelected || "thung",
+            loaiHang: row.LoaiHang || "hang_ban",
+            soLuong: row.SoLuong || 0,
+            donGiaGoc: row.DonGiaGoc || 0,
+            tienHangGoc: row.TienHangGoc || 0,
+            chietKhauPhanTram: row.ChietKhauPhanTram || 0,
+            tienChietKhau: row.TienChietKhau || 0,
+            giaSauChietKhau: row.GiaSauChietKhau || 0,
+            thanhTienCuoiCung: row.ThanhTienCuoiCung || 0
+        }));
 
-        public class ChiTietSanPhamCapNhatDto
-        {
-            public string MaHangNCC { get; set; }
-            public string TenSanPham { get; set; }
-            public int QuyCach { get; set; }
-            public string DonViLe { get; set; }
-            public string DvtSelected { get; set; }
-            public string LoaiHang { get; set; }
-            public int SoLuong { get; set; }
-            public decimal DonGiaGoc { get; set; }
-            public decimal TienHangGoc { get; set; }
-            public decimal ChietKhauPhanTram { get; set; }
-            public decimal TienChietKhau { get; set; }
-            public decimal GiaSauChietKhau { get; set; }
-            public decimal ThanhTienCuoiCung { get; set; }
-        }
-
-        // 2. Model cho chức năng Tạo Đơn Hàng Mới (POST)
-        public class DonHangInsertModel
-        {
-            public string MaDonHangTam { get; set; }
-            public DateTime NgayTaoDon { get; set; }
-            public string MaNhanVien { get; set; }
-            public string TenNhanVien { get; set; }
-            public string MaKhachHang { get; set; }
-            public string TenKhachHang { get; set; }
-            public string SoDienThoaiKH { get; set; }
-            public string DiaChiKH { get; set; }
-            public string GhiChuDonHang { get; set; }
-            public DateTime? NgayGiaoHang { get; set; }
-            public decimal TongTienThanhToan { get; set; }
-            public string TrangThai { get; set; }
-            public List<ChiTietSanPhamInsertModel> DanhSachSanPham { get; set; }
-        }
-
-        public class ChiTietSanPhamInsertModel
-        {
-            public string MaHangNCC { get; set; }
-            public string TenSanPham { get; set; }
-            public int QuyCach { get; set; }
-            public string DonViLe { get; set; }
-            public string DvtSelected { get; set; }
-            public string LoaiHang { get; set; }
-            public int SoLuong { get; set; }
-            public decimal DonGiaGoc { get; set; }
-            public decimal TienHangGoc { get; set; }
-            public decimal ChietKhauPhanTram { get; set; }
-            public decimal TienChietKhau { get; set; }
-            public decimal GiaSauChietKhau { get; set; }
-            public decimal ThanhTienCuoiCung { get; set; }
-        }
+        return res.ok ? res.ok(danhSachChiTiet) : res.json(danhSachChiTiet);
+    } catch (err) {
+        return res.status(500).send(`Lỗi hệ thống khi lấy chi tiết đơn hàng: ${err.message}`);
     }
-}
+});
+
+// =========================================================================
+// 🌟 2. API CẬP NHẬT ĐƠN HÀNG CHỜ DUYỆT
+// =========================================================================
+router.put('/CapNhatDonChoDuyet/:maDonHang', async (req, res) => {
+    const { maDonHang } = req.params;
+    const dto = req.body;
+
+    if (!dto || maDonHang !== dto.maDonHang) {
+        return res.status(400).send("Dữ liệu đơn hàng không hợp lệ.");
+    }
+
+    const pool = await getDbConnection();
+    const transaction = new sql.Transaction(pool);
+
+    try {
+        await transaction.begin();
+
+        // Kiểm tra trạng thái hiện tại
+        const checkRequest = new sql.Request(transaction);
+        const checkResult = await checkRequest
+            .input('MaDonHang', sql.VarChar, maDonHang)
+            .query('SELECT TrangThai FROM web_DonHang WHERE MaDonHang = @MaDonHang');
+
+        const trangThaiHienTai = checkResult.recordset[0]?.TrangThai;
+
+        if (!trangThaiHienTai) {
+            await transaction.rollback();
+            return res.status(404).send("Không tìm thấy đơn hàng này trên hệ thống.");
+        }
+        if (trangThaiHienTai !== "Chờ duyệt") {
+            await transaction.rollback();
+            return res.status(400).send("Đơn hàng đã được duyệt hoặc bị hủy, không thể sửa đổi nữa!");
+        }
+
+        // A. UPDATE bảng web_DonHang
+        const updateRequest = new sql.Request(transaction);
+        await updateRequest
+            .input('MaKhachHang', sql.NVarChar, dto.maKhachHang || "")
+            .input('TenKhachHang', sql.NVarChar, dto.tenKhachHang || "")
+            .input('SoDienThoaiKH', sql.VarChar, dto.soDienThoaiKH || null)
+            .input('DiaChiKH', sql.NVarChar, dto.diaChiKH || null)
+            .input('TongTienThanhToan', sql.Decimal(18, 2), dto.tongTienThanhToan)
+            .input('GhiChuDonHang', sql.NVarChar, dto.ghiChuDonHang || null)
+            .input('NgayGiaoHang', sql.DateTime, dto.ngayGiaoHang || null)
+            .input('MaDonHang', sql.VarChar, maDonHang)
+            .query(`
+                UPDATE web_DonHang 
+                SET MaKhachHang = @MaKhachHang, TenKhachHang = @TenKhachHang, 
+                    SoDienThoaiKH = @SoDienThoaiKH, DiaChiKH = @DiaChiKH,
+                    TongTienThanhToan = @TongTienThanhToan, GhiChuDonHang = @GhiChuDonHang, NgayGiaoHang = @NgayGiaoHang
+                WHERE MaDonHang = @MaDonHang`);
+
+        // B. DELETE chi tiết đơn hàng cũ
+        const deleteRequest = new sql.Request(transaction);
+        await deleteRequest
+            .input('MaDonHang', sql.VarChar, maDonHang)
+            .query('DELETE FROM web_ChiTietDonHang WHERE MaDonHang = @MaDonHang');
+
+        // C. INSERT lại danh sách chi tiết mới
+        if (dto.danhSachSanPham && dto.danhSachSanPham.length > 0) {
+            for (const item of dto.danhSachSanPham) {
+                const insertRequest = new sql.Request(transaction);
+                await insertRequest
+                    .input('MaDonHang', sql.VarChar, maDonHang)
+                    .input('MaHangNCC', sql.VarChar, item.maHangNCC || "")
+                    .input('TenSanPham', sql.NVarChar, item.tenSanPham || "")
+                    .input('QuyCach', sql.Int, item.quyCach)
+                    .input('DonViLe', sql.NVarChar, item.donViLe || "Gói")
+                    .input('DvtSelected', sql.NVarChar, item.dvtSelected || "thung")
+                    .input('LoaiHang', sql.NVarChar, item.loaiHang || "hang_ban")
+                    .input('SoLuong', sql.Int, item.soLuong)
+                    .input('DonGiaGoc', sql.Decimal(18, 2), item.donGiaGoc)
+                    .input('TienHangGoc', sql.Decimal(18, 2), item.tienHangGoc)
+                    .input('ChietKhauPhanTram', sql.Decimal(5, 2), item.chietKhauPhanTram)
+                    .input('TienChietKhau', sql.Decimal(18, 2), item.tienChietKhau)
+                    .input('GiaSauChietKhau', sql.Decimal(18, 2), item.giaSauChietKhau)
+                    .input('ThanhTienCuoiCung', sql.Decimal(18, 2), item.thanhTienCuoiCung)
+                    .query(`
+                        INSERT INTO web_ChiTietDonHang (MaDonHang, MaHangNCC, TenSanPham, QuyCach, DonViLe, DvtSelected, LoaiHang, SoLuong, DonGiaGoc, TienHangGoc, ChietKhauPhanTram, TienChietKhau, GiaSauChietKhau, ThanhTienCuoiCung)
+                        VALUES (@MaDonHang, @MaHangNCC, @TenSanPham, @QuyCach, @DonViLe, @DvtSelected, @LoaiHang, @SoLuong, @DonGiaGoc, @TienHangGoc, @ChietKhauPhanTram, @TienChietKhau, @GiaSauChietKhau, @ThanhTienCuoiCung)`);
+            }
+        }
+
+        await transaction.commit();
+        return res.json({ success = true, message = "Cập nhật đơn hàng thành công!" });
+    } catch (err) {
+        await transaction.rollback();
+        return res.status(500).send(`Lỗi hệ thống khi cập nhật đơn hàng: ${err.message}`);
+    }
+});
+
+// =========================================================================
+// 🌟 3. GET: api/DonHang/TrongNgay?maNV=NV001
+// =========================================================================
+router.get('/TrongNgay', async (req, res) => {
+    const { maNV } = req.query;
+    if (!maNV) return res.status(400).send("Thiếu thông tin mã nhân viên.");
+
+    try {
+        const pool = await getDbConnection();
+        const homNay = new Date();
+        homNay.setHours(0,0,0,0);
+
+        // 1. Lấy danh sách đơn hàng
+        const donHangResult = await pool.request()
+            .input('HomNay', sql.DateTime, homNay)
+            .input('MaNhanVien', sql.VarChar, maNV)
+            .query(`
+                SELECT MaDonHang, NgayTaoDon, MaNhanVien, TenNhanVien, MaKhachHang, TenKhachHang, SoDienThoaiKH, DiaChiKH, GhiChuDonHang, NgayGiaoHang, TongTienThanhToan, TrangThai
+                FROM web_DonHang WHERE NgayTaoDon >= @HomNay AND MaNhanVien = @MaNhanVien ORDER BY NgayTaoDon DESC`);
+
+        const finalResult = [];
+
+        // 2. Đi lấy chi tiết từng đơn
+        for (const dh of donHangResult.recordset) {
+            const chiTietResult = await pool.request()
+                .input('MaDonHang', sql.VarChar, dh.MaDonHang)
+                .query(`
+                    SELECT MaHangNCC, TenSanPham, QuyCach, DonViLe, DvtSelected, LoaiHang, SoLuong, DonGiaGoc, TienHangGoc, ChietKhauPhanTram, TienChietKhau, GiaSauChietKhau, ThanhTienCuoiCung
+                    FROM web_ChiTietDonHang WHERE MaDonHang = @MaDonHang`);
+
+            finalResult.push({
+                maDonHang: dh.MaDonHang,
+                ngayTaoDon: dh.NgayTaoDon,
+                maNhanVien: dh.MaNhanVien,
+                tenNhanVien: dh.TenNhanVien,
+                maKhachHang: dh.MaKhachHang,
+                tenKhachHang: dh.TenKhachHang,
+                soDienThoaiKH: dh.SoDienThoaiKH,
+                diaChiKH: dh.DiaChiKH,
+                ghiChuDonHang: dh.GhiChuDonHang,
+                ngayGiaoHang: dh.NgayGiaoHang,
+                tongTienThanhToan: dh.TongTienThanhToan,
+                trangThai: dh.TrangThai,
+                danhSachSanPham: chiTietResult.recordset.map(ct => ({
+                    maHangNCC: ct.MaHangNCC,
+                    tenSanPham: ct.TenSanPham,
+                    quyCach: ct.QuyCach,
+                    donViLe: ct.DonViLe,
+                    dvtSelected: ct.DvtSelected,
+                    loaiHang: ct.LoaiHang,
+                    soLuong: ct.SoLuong,
+                    donGiaGoc: ct.DonGiaGoc,
+                    tienHangGoc: ct.TienHangGoc,
+                    chietKhauPhanTram: ct.ChietKhauPhanTram,
+                    tienChietKhau: ct.TienChietKhau,
+                    giaSauChietKhau: ct.GiaSauChietKhau,
+                    thanhTienCuoiCung: ct.ThanhTienCuoiCung
+                }))
+            });
+        }
+
+        return res.json(finalResult);
+    } catch (err) {
+        return res.status(500).send(`Lỗi hệ thống khi lấy đơn hàng trong ngày: ${err.message}`);
+    }
+});
+
+// =========================================================================
+// 🌟 4. GET: api/DonHang/ThongKeDashboard?maNV=NV001
+// =========================================================================
+router.get('/ThongKeDashboard', async (req, res) => {
+    const { maNV } = req.query;
+    if (!maNV) return res.status(400).send("Thiếu thông tin mã nhân viên.");
+
+    try {
+        const pool = await getDbConnection();
+        const homNay = new Date();
+        homNay.setHours(0,0,0,0);
+
+        const result = await pool.request()
+            .input('HomNay', sql.DateTime, homNay)
+            .input('MaNhanVien', sql.VarChar, maNV)
+            .query(`
+                SELECT 
+                    ISNULL(SUM(CASE WHEN TrangThai = N'Đã duyệt' OR TrangThai = N'Chờ duyệt' THEN TongTienThanhToan ELSE 0 END), 0) AS DoanhSoGiaoDich,
+                    ISNULL(SUM(CASE WHEN TrangThai = N'Chờ duyệt' THEN 1 ELSE 0 END), 0) AS SoDonChoDuyet,
+                    ISNULL(SUM(CASE WHEN TrangThai = N'Đã duyệt' THEN 1 ELSE 0 END), 0) AS SoDonDaDuyet,
+                    COUNT(DISTINCT MaKhachHang) AS SoKhachMua,
+                    (SELECT COUNT(DISTINCT c.MaHangNCC) FROM web_ChiTietDonHang c INNER JOIN web_DonHang d ON c.MaDonHang = d.MaDonHang WHERE d.NgayTaoDon >= @HomNay AND d.MaNhanVien = @MaNhanVien AND d.TrangThai <> N'Hủy đơn' AND d.TrangThai <> N'Hủy') AS SoSKU
+                FROM web_DonHang WHERE NgayTaoDon >= @HomNay AND MaNhanVien = @MaNhanVien`);
+
+        const data = result.recordset[0];
+        return res.json({
+            doanhSoHomNay: data.DoanhSoGiaoDich,
+            choDuyet: data.SoDonChoDuyet,
+            daDuyet: data.SoDonDaDuyet,
+            khachMua: data.SoKhachMua,
+            sku: data.SoSKU
+        });
+    } catch (err) {
+        return res.status(500).send(`Lỗi hệ thống khi lấy số liệu Dashboard: ${err.message}`);
+    }
+});
+
+// =========================================================================
+// 🌟 5. POST: api/DonHang (Thêm đơn hàng - Sinh mã tự động)
+// =========================================================================
+router.post('/', async (req, res) => {
+    const model = req.body;
+    if (!model || !model.danhSachSanPham || model.danhSachSanPham.length === 0) {
+        return res.status(400).send("Dữ liệu đơn hàng hoặc danh sách sản phẩm không hợp lệ.");
+    }
+
+    const pool = await getDbConnection();
+    const transaction = new sql.Transaction(pool);
+
+    try {
+        await transaction.begin();
+
+        // Tạo tiền tố mã đơn hàng (Ví dụ: WB2606)
+        const now = new Date();
+        const yy = String(now.getFullYear()).slice(-2);
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const prefix = `WB${yy}${mm}`;
+
+        // Tìm mã lớn nhất để tăng dần
+        const maxRequest = new sql.Request(transaction);
+        const maxResult = await maxRequest
+            .input('Prefix', sql.VarChar, prefix + '%')
+            .query('SELECT MAX(MaDonHang) AS MaxMa FROM web_DonHang WHERE MaDonHang LIKE @Prefix');
+
+        const maxMaDonHang = maxResult.recordset[0]?.MaxMa;
+        let maDonHangChinhThuc = "";
+
+        if (!maxMaDonHang) {
+            maDonHangChinhThuc = prefix + "00001";
+        } else {
+            const lastNumber = parseInt(maxMaDonHang.substring(6));
+            maDonHangChinhThuc = prefix + String(lastNumber + 1).padStart(5, '0');
+        }
+
+        // Chèn bảng tổng đơn hàng
+        const insertDHRequest = new sql.Request(transaction);
+        await insertDHRequest
+            .input('MaDonHang', sql.VarChar, maDonHangChinhThuc)
+            .input('MaDonHangTam', sql.VarChar, model.maDonHangTam || null)
+            .input('NgayTaoDon', sql.DateTime, model.ngayTaoDon || new Date())
+            .input('MaNhanVien', sql.VarChar, model.maNhanVien || "CHƯA_RÕ")
+            .input('TenNhanVien', sql.NVarChar, model.tenNhanVien || "Chưa rõ tên")
+            .input('MaKhachHang', sql.NVarChar, model.maKhachHang || "")
+            .input('TenKhachHang', sql.NVarChar, model.tenKhachHang || "")
+            .input('SoDienThoaiKH', sql.VarChar, model.soDienThoaiKH || null)
+            .input('DiaChiKH', sql.NVarChar, model.diaChiKH || null)
+            .input('GhiChuDonHang', sql.NVarChar, model.ghiChuDonHang || null)
+            .input('NgayGiaoHang', sql.DateTime, model.ngayGiaoHang || null)
+            .input('TongTienThanhToan', sql.Decimal(18, 2), model.tongTienThanhToan)
+            .input('TrangThai', sql.NVarChar, model.trangThai || "Chờ duyệt")
+            .query(`
+                INSERT INTO web_DonHang (MaDonHang, MaDonHangTam, NgayTaoDon, MaNhanVien, TenNhanVien, MaKhachHang, TenKhachHang, SoDienThoaiKH, DiaChiKH, GhiChuDonHang, NgayGiaoHang, TongTienThanhToan, TrangThai)
+                VALUES (@MaDonHang, @MaDonHangTam, @NgayTaoDon, @MaNhanVien, @TenNhanVien, @MaKhachHang, @TenKhachHang, @SoDienThoaiKH, @DiaChiKH, @GhiChuDonHang, @NgayGiaoHang, @TongTienThanhToan, @TrangThai)`);
+
+        // Chèn bảng chi tiết sản phẩm
+        for (const item of model.danhSachSanPham) {
+            const insertCTRequest = new sql.Request(transaction);
+            await insertCTRequest
+                .input('MaDonHang', sql.VarChar, maDonHangChinhThuc)
+                .input('MaHangNCC', sql.VarChar, item.maHangNCC || "")
+                .input('TenSanPham', sql.NVarChar, item.tenSanPham || "")
+                .input('QuyCach', sql.Int, item.quyCach)
+                .input('DonViLe', sql.NVarChar, item.donViLe || "Gói")
+                .input('DvtSelected', sql.NVarChar, item.dvtSelected || "thung")
+                .input('LoaiHang', sql.NVarChar, item.loaiHang || "hang_ban")
+                .input('SoLuong', sql.Int, item.soLuong)
+                .input('DonGiaGoc', sql.Decimal(18, 2), item.donGiaGoc)
+                .input('TienHangGoc', sql.Decimal(18, 2), item.tienHangGoc)
+                .input('ChietKhauPhanTram', sql.Decimal(5, 2), item.chietKhauPhanTram)
+                .input('TienChietKhau', sql.Decimal(18, 2), item.tienChietKhau)
+                .input('GiaSauChietKhau', sql.Decimal(18, 2), item.giaSauChietKhau)
+                .input('ThanhTienCuoiCung', sql.Decimal(18, 2), item.thanhTienCuoiCung)
+                .query(`
+                    INSERT INTO web_ChiTietDonHang (MaDonHang, MaHangNCC, TenSanPham, QuyCach, DonViLe, DvtSelected, LoaiHang, SoLuong, DonGiaGoc, TienHangGoc, ChietKhauPhanTram, TienChietKhau, GiaSauChietKhau, ThanhTienCuoiCung)
+                    VALUES (@MaDonHang, @MaHangNCC, @TenSanPham, @QuyCach, @DonViLe, @DvtSelected, @LoaiHang, @SoLuong, @DonGiaGoc, @TienHangGoc, @ChietKhauPhanTram, @TienChietKhau, @GiaSauChietKhau, @ThanhTienCuoiCung)`);
+        }
+
+        await transaction.commit();
+        return res.json({ success: true, maDonHangChinhThuc: maDonHangChinhThuc });
+    } catch (err) {
+        await transaction.rollback();
+        return res.status(500).send(`Lỗi hệ thống khi lưu đơn hàng: ${err.message}`);
+    }
+});
+
+// =========================================================================
+// 🌟 6. DELETE: api/DonHang/:maDonHang (Xóa đơn chờ duyệt)
+// =========================================================================
+router.delete('/:maDonHang', async (req, res) => {
+    const { maDonHang } = req.params;
+    if (!maDonHang) return res.status(400).send("Thiếu thông tin mã đơn hàng cần xóa.");
+
+    const pool = await getDbConnection();
+    const transaction = new sql.Transaction(pool);
+
+    try {
+        await transaction.begin();
+
+        const checkRequest = new sql.Request(transaction);
+        const checkResult = await checkRequest
+            .input('MaDonHang', sql.VarChar, maDonHang)
+            .query('SELECT TrangThai FROM web_DonHang WHERE MaDonHang = @MaDonHang');
+
+        const trangThaiHienTai = checkResult.recordset[0]?.TrangThai;
+
+        if (!trangThaiHienTai) {
+            await transaction.rollback();
+            return res.status(404).send(`Không tìm thấy đơn hàng ${maDonHang} trên hệ thống.`);
+        }
+        if (trangThaiHienTai !== "Chờ duyệt") {
+            await transaction.rollback();
+            return res.status(400).send("Đơn hàng này đã được xử lý (Đã duyệt hoặc Hủy), không thể xóa khỏi hệ thống!");
+        }
+
+        // Bước A: Xóa chi tiết đơn hàng
+        const deleteCTRequest = new sql.Request(transaction);
+        await deleteCTRequest
+            .input('MaDonHang', sql.VarChar, maDonHang)
+            .query('DELETE FROM web_ChiTietDonHang WHERE MaDonHang = @MaDonHang');
+
+        // Bước B: Xóa tổng đơn hàng
+        const deleteDHRequest = new sql.Request(transaction);
+        await deleteDHRequest
+            .input('MaDonHang', sql.VarChar, maDonHang)
+            .query('DELETE FROM web_DonHang WHERE MaDonHang = @MaDonHang');
+
+        await transaction.commit();
+        return res.json({ success: true, message: `Đã xóa thành công đơn hàng ${maDonHang}.` });
+    } catch (err) {
+        await transaction.rollback();
+        return res.status(500).send(`Lỗi hệ thống khi xóa đơn hàng: ${err.message}`);
+    }
+});
+
+module.exports = router;
