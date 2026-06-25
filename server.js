@@ -24,6 +24,7 @@ app.use('/api/ToaDoKhachHang', require('./controllers/ToaDoKhachHangController')
 app.use('/api/NhanVien', require('./controllers/NhanVienController')); 
 app.use('/api/KhachHang', require('./controllers/KhachHangController'));
 app.use('/api/DonHang', require('./controllers/DonHangController'));
+app.use('/api/SanPham', require('./controllers/SanPhamController'));
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
