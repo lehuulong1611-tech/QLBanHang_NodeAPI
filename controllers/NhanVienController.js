@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const sql = require('mssql'); // Sử dụng trực tiếp thư viện mssql giống file ToaDoKhachHang
+// ĐƯỜNG DẪN: Lấy đúng hàm getDbConnection và thư viện sql từ file server.js gốc của bạn
+// Nếu file này nằm sâu hơn trong thư mục (vd: controllers/), hãy đảm bảo đường dẫn '../server' là chính xác
+const { getDbConnection, sql } = require('../server'); 
 
 // =========================================================================
 // 🌟 1. GET: api/NhanVien?page=1&pageSize=50 (LẤY DANH SÁCH NHÂN VIÊN PHÂN TRANG)
@@ -13,15 +15,19 @@ router.get('/', async (req, res) => {
         if (page < 1) page = 1;
         if (pageSize < 1) pageSize = 50;
 
+        // Kết nối cơ sở dữ liệu thông qua hàm dùng chung trong server.js
+        const pool = await getDbConnection();
         
-        let pool = await sql.connect();
+        // Tạo một request duy nhất để tái sử dụng, tránh lỗi Concurrent Request trên Render
+        const request = pool.request();
+
         // A. Tính tổng số lượng nhân viên để làm phân trang
-        const countResult = await pool.request().query('SELECT COUNT(*) AS Total FROM Dm_Nhanvien');
+        const countResult = await request.query('SELECT COUNT(*) AS Total FROM Dm_Nhanvien');
         const totalCount = countResult.recordset[0]?.Total || 0;
 
-        // B. Thực hiện truy vấn phân trang bằng SQL thuần (Yêu cầu phải có ORDER BY)
+        // B. Thực hiện truy vấn phân trang bằng SQL thuần (Dùng chung bộ request ở trên)
         const offset = (page - 1) * pageSize;
-        const listResult = await pool.request()
+        const listResult = await request
             .input('Offset', sql.Int, offset)
             .input('PageSize', sql.Int, pageSize)
             .query(`
@@ -60,8 +66,8 @@ router.get('/get-nhom-hang/:maNhanVien', async (req, res) => {
     const { maNhanVien } = req.params;
 
     try {
-       
-        let pool = await sql.connect();
+        // Kết nối thông qua hàm dùng chung
+        const pool = await getDbConnection();
 
         // Quét bảng phân quyền để lấy ra danh sách mã nhóm hàng (Manhom) của nhân viên này
         const result = await pool.request()
