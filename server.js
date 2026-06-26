@@ -27,6 +27,9 @@ app.use('/api/DonHang', require('./controllers/DonHangController'));
 app.use('/api/SanPham', require('./controllers/SanPhamController'));
 
 const PORT = process.env.PORT || 10000;
+app.get("/ping", (req, res) => {
+    res.send("OK");
+});
 app.listen(PORT, () => {
     console.log(`🚀 API Node.js đang chạy tại cổng ${PORT}`);
 });
