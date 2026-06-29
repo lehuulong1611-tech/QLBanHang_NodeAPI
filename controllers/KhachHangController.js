@@ -13,7 +13,7 @@ router.get('/', async (req, res) => {
         const pool = await getDbConnection();
         
         let result = await pool.request()
-            .query('SELECT Ma, Ten, DienThoai, DiaChi FROM DM_KhachHang WHERE LaKhachHang = 1');
+            .query('SELECT Ma, Ten, DienThoai, DiaChi FROM DM_KhachHang WHERE LaKhachHang = 1 and NhomKH=0015');
 
         const ketQuaPhang = result.recordset.map(kh => ({
             maKhachHang: kh.Ma || "",
